@@ -8,75 +8,71 @@ import dash_ag_grid as dag
 import pandas as pd
 import base64
 import io
+import os
 import re
 
 # Groq API Key
-GROQ_API_KEY = 'ur key'
+GROQ_API_KEY = ''
 
-# Initialize the Dash app
-app = Dash(__name__)
-app.title = "Plotly AI Graph Builder Dashboard"
-
-# Initialize the model and prompt
+# Choose the model
 model = ChatGroq(
     api_key=GROQ_API_KEY,
     model="llama3-70b-8192",
-    # model="Mixtral-8x7b-32768" # Optional model
 )
 
-prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system",
-         "You're a data visualization expert and only use Plotly. The data is in a honey_US.csv file. "
-         "Here are the first 5 rows: {data} Follow the user's instructions when creating the graph."),
-        MessagesPlaceholder("chat_history", optional=True),
-        ("human", "{input}"),
-    ]
-)
+prompt = ChatPromptTemplate.from_messages([
+    ("system", 
+     "You're a data visualization expert and only use Plotly. "
+     "Here are the first 5 rows of the uploaded data: {data} Follow the user's instructions when creating the graph."),
+    MessagesPlaceholder("chat_history", optional=True),
+    ("human", "{input}"),
+])
 
 chain = prompt | model
 
 # Extract Plotly fig object from the generated code
 def get_fig_from_code(code):
-    local_variables = {}
-    exec(code, {}, local_variables)
-    return local_variables['fig']
-
-# Parse contents of the uploaded file
-def parse_contents(contents, filename):
-    content_type, content_string = contents.split(',')
-    decoded = base64.b64decode(content_string)
     try:
-        if 'csv' in filename:
-            # Assume that the user uploaded a CSV file
-            df = pd.read_csv(io.StringIO(decoded.decode('utf-8')))
-        elif 'xls' in filename:
-            # Assume that the user uploaded an excel file
-            df = pd.read_excel(io.BytesIO(decoded))
+        local_variables = {}
+        exec(code, globals(), local_variables)
+        return local_variables.get('fig', None)
     except Exception as e:
-        print(e)
-        return html.Div([
-            'There was an error processing this file.'
-        ])
+        print(f"Error executing code: {str(e)}")
+        return None
 
-    return df
+# Parse uploaded file content
+def parse_contents(contents):
+    try:
+        content_type, content_string = contents.split(',')
+        decoded = base64.b64decode(content_string)
+        df = pd.read_csv(io.StringIO(decoded.decode('utf-8')))
+        return df
+    except Exception as e:
+        print(f"Error parsing file: {str(e)}")
+        return None
+
+# Initialize the Dash app
+app = Dash(__name__)
+server = app.server  # This is the underlying Flask app
+app.title = "Plotly AI Graph Builder "
 
 # Layout with sidebar and main content
 app.layout = html.Div([
     # Sidebar
     html.Div([
         html.Div([
-            html.H2("Plotly AI", className="sidebar-title"),
+            html.H2("Plotly AI Graph Builder", className="sidebar-title"),
             html.Hr(),
             html.P("Graph Builder Dashboard", className="sidebar-subtitle"),
         ], className="sidebar-header"),
-
+        
         html.Div([
+            # Add file upload component
             dcc.Upload(
                 id='upload-data',
                 children=html.Div([
                     'Drag and Drop or ',
-                    html.A('Select Files')
+                    html.A('Select CSV File')
                 ]),
                 style={
                     'width': '100%',
@@ -86,10 +82,11 @@ app.layout = html.Div([
                     'borderStyle': 'dashed',
                     'borderRadius': '5px',
                     'textAlign': 'center',
-                    'margin': '10px'
+                    'margin': '10px 0'
                 },
                 multiple=False
             ),
+            html.Div(id='upload-status', style={'margin': '10px 0', 'color': '#666'}),
             dcc.Textarea(
                 id="user-request",
                 placeholder="Describe the plot you want to create...",
@@ -98,53 +95,25 @@ app.layout = html.Div([
             html.Button(
                 "Generate Plot",
                 id="my-button",
-                className="submit-button"
+                className="submit-button",
+                disabled=True
             ),
         ], className="sidebar-content")
     ], className="sidebar"),
-
+    
     # Main Content
     html.Div([
         # Top Stats Cards
-        html.Div([
-            html.Div([
-                html.H4("Total Records", className="card-title"),
-                html.P(id="total-records", className="card-value"),
-                html.P("Total rows in dataset", className="card-subtitle")
-            ], className="stats-card"),
-            html.Div([
-                html.H4("Columns", className="card-title"),
-                html.P(id="num-columns", className="card-value"),
-                html.P("Available features", className="card-subtitle")
-            ], className="stats-card"),
-            html.Div([
-                html.H4("Date Range", className="card-title"),
-                html.P(id="date-range", className="card-value"),
-                html.P("Time period covered", className="card-subtitle")
-            ], className="stats-card"),
-        ], className="stats-container"),
-
+        html.Div(id='stats-container', className="stats-container"),
+        
         # Data Grid and Graph Container
         html.Div([
             # Data Grid
             html.Div([
                 html.H3("Dataset Preview", className="section-title"),
-                html.Div([
-                    dag.AgGrid(
-                        id="data-grid",
-                        rowData=[],
-                        columnDefs=[],
-                        defaultColDef={
-                            "filter": True,
-                            "sortable": True,
-                            "floatingFilter": True,
-                            "resizable": True
-                        },
-                        className="ag-theme-alpine",
-                    )
-                ], className="grid-container"),
+                html.Div(id='data-grid', className="grid-container"),
             ], className="data-section"),
-
+            
             # Graph Output
             html.Div([
                 html.H3("Visualization", className="section-title"),
@@ -158,76 +127,139 @@ app.layout = html.Div([
                 ], className="graph-container"),
             ], className="visualization-section"),
         ], className="main-grid"),
-
+        
     ], className="main-content"),
-
+    
     # Hidden elements
     dcc.Store(id="store-it", data=[]),
-    dcc.Store(id="uploaded-data", data=None),
-
+    dcc.Store(id="dataset-store", data=None),
 ], className="dashboard-container")
 
 # Callback to handle file upload
 @callback(
-    [Output("data-grid", "rowData"),
-     Output("data-grid", "columnDefs"),
-     Output("total-records", "children"),
-     Output("num-columns", "children"),
-     Output("date-range", "children"),
-     Output("uploaded-data", "data")],
-    [Input("upload-data", "contents")],
-    [State("upload-data", "filename")],
-    prevent_initial_call=True,
+    [Output('dataset-store', 'data'),
+     Output('upload-status', 'children'),
+     Output('my-button', 'disabled'),
+     Output('stats-container', 'children'),
+     Output('data-grid', 'children')],
+    Input('upload-data', 'contents'),
+    prevent_initial_call=True
 )
-def update_output(contents, filename):
-    if contents is not None:
-        df = parse_contents(contents, filename)
-        total_records = len(df)
-        num_columns = len(df.columns)
-        date_range = f"{df['year'].min()} - {df['year'].max()}" if 'year' in df.columns else 'N/A'
+def update_output(contents):
+    if contents is None:
+        return no_update, no_update, True, no_update, no_update
+    
+    df = parse_contents(contents)
+    if df is None:
+        return (None, 
+                "Error processing file. Please ensure it's a valid CSV.",
+                True,
+                no_update,
+                no_update)
+    
+    # Create stats cards
+    total_records = len(df)
+    num_columns = len(df.columns)
+    date_range = f"{df['year'].min()} - {df['year'].max()}" if 'year' in df.columns else 'N/A'
+    
+    stats_cards = [
+        html.Div([
+            html.H4("Total Records", className="card-title"),
+            html.P(f"{total_records:,}", className="card-value"),
+            html.P("Total rows in dataset", className="card-subtitle")
+        ], className="stats-card"),
+        html.Div([
+            html.H4("Columns", className="card-title"),
+            html.P(f"{num_columns}", className="card-value"),
+            html.P("Available features", className="card-subtitle")
+        ], className="stats-card"),
+        html.Div([
+            html.H4("Date Range", className="card-title"),
+            html.P(date_range, className="card-value"),
+            html.P("Time period covered", className="card-subtitle")
+        ], className="stats-card"),
+    ]
+    
+    # Create data grid
+    data_grid = dag.AgGrid(
+        rowData=df.to_dict("records"),
+        columnDefs=[{"field": i} for i in df.columns],
+        defaultColDef={
+            "filter": True,
+            "sortable": True,
+            "floatingFilter": True,
+            "resizable": True
+        },
+        className="ag-theme-alpine",
+    )
+    
+    return (df.to_json(date_format='iso', orient='split'),
+            f"File uploaded successfully: {total_records:,} rows",
+            False,
+            stats_cards,
+            data_grid)
 
-        return (df.to_dict("records"),
-                [{"field": i} for i in df.columns],
-                f"{total_records:,}",
-                f"{num_columns}",
-                date_range,
-                df.to_json(date_format='iso', orient='split'))
-    return no_update
-
-# Callback to generate the graph
+# Callback for graph generation
 @callback(
-    [Output("my-figure", "children"), Output("content", "children"), Output("store-it", "data")],
+    [Output("my-figure", "children"),
+     Output("content", "children"),
+     Output("store-it", "data")],
     [Input("my-button", "n_clicks")],
-    [State("user-request", "value"), State("store-it", "data"), State("uploaded-data", "data")],
-    prevent_initial_call=True,
+    [State("user-request", "value"),
+     State("store-it", "data"),
+     State("dataset-store", "data")],
+    prevent_initial_call=True
 )
-def create_graph(_, user_input, chat_history, uploaded_data):
-    if len(chat_history) > 0:
-        chat_history = loads(chat_history)
-
-    if uploaded_data is not None:
-        df = pd.read_json(uploaded_data, orient='split')
-        df_5_rows = df.head()
-        csv_string = df_5_rows.to_string(index=False)
-
-        response = chain.invoke({"input": user_input, "data": csv_string, "chat_history": chat_history})
+def create_graph(n_clicks, user_input, chat_history, dataset_json):
+    if n_clicks is None or not user_input or dataset_json is None:
+        return no_update, "Please upload a dataset and enter a visualization request.", []
+    
+    try:
+        df = pd.read_json(dataset_json, orient='split')
+        csv_string = df.head().to_string(index=False)
+        
+        # Initialize chat history if empty
+        if not chat_history:
+            chat_history = []
+        elif isinstance(chat_history, str):
+            try:
+                chat_history = loads(chat_history)
+            except:
+                chat_history = []
+        
+        # Generate the response
+        response = chain.invoke({
+            "input": user_input,
+            "data": csv_string,
+            "chat_history": chat_history
+        })
         result_output = response.content
 
+        # Update chat history
         chat_history.append(HumanMessage(content=user_input))
         chat_history.append(AIMessage(content=result_output))
         history = dumps(chat_history)
 
-        # Check for code block
+        # Extract and execute code
         code_block_match = re.search(r'```(?:[Pp]ython)?(.*?)```', result_output, re.DOTALL)
         if code_block_match:
             code_block = code_block_match.group(1).strip()
             cleaned_code = re.sub(r'(?m)^\s*fig\.show\(\)\s*$', '', code_block)
+            
+            # Make DataFrame available to the code
+            globals()['df'] = df
             fig = get_fig_from_code(cleaned_code)
-            return dcc.Graph(figure=fig), result_output, history
+            
+            if fig is not None:
+                return dcc.Graph(figure=fig), result_output, history
+            else:
+                return no_update, "Error generating the visualization. Please try a different request.", history
         else:
             return no_update, result_output, history
-    else:
-        return no_update, "Please upload a CSV file first.", no_update
+            
+    except Exception as e:
+        print(f"Error in create_graph: {str(e)}")
+        return no_update, f"An error occurred: {str(e)}", []
 
 # Add custom CSS
 app.index_string = '''
@@ -456,6 +488,5 @@ app.index_string = '''
     </body>
 </html>
 '''
-
 if __name__ == "__main__":
     app.run_server(debug=True, port=8009)
