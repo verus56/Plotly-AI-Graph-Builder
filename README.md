@@ -44,7 +44,7 @@ The application follows a simple but powerful workflow:
   
 ## Screen Ui
 ![Plotly AI Graph Builder Image](https://github.com/verus56/Plotly-AI-Graph-Builder/blob/main/1.png)
-![Plotly AI Graph Builder Image]([URL_OF_THE_IMAGE](https://github.com/verus56/Plotly-AI-Graph-Builder/blob/main/2.png))
+![Plotly AI Graph Builder Image2]([URL_OF_THE_IMAGE](https://github.com/verus56/Plotly-AI-Graph-Builder/blob/main/2.png))
 
 ## About LLaMA
 
