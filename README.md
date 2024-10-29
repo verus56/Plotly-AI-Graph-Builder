@@ -1,6 +1,7 @@
 # Plotly AI Graph Builder
 
 An interactive web application that combines the power of AI with Plotly's visualization capabilities to automatically generate data visualizations from natural language descriptions. Built with Dash, LangChain, and Groq LLM, powered by LLaMA.
+You can test it here: [Demo Link](https://dataviz-ai-builder.onrender.com/)
 
 ## Features
 
@@ -40,6 +41,10 @@ The application follows a simple but powerful workflow:
    - The system maintains conversation history
    - Subsequent requests can reference previous visualizations
    - The AI understands and builds upon previous context
+  
+## Screen Ui
+![Plotly AI Graph Builder Image](https://github.com/verus56/Plotly-AI-Graph-Builder/blob/main/1.png)
+![Plotly AI Graph Builder Image]([URL_OF_THE_IMAGE](https://github.com/verus56/Plotly-AI-Graph-Builder/blob/main/2.png))
 
 ## About LLaMA
 
