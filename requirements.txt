@@ -1,0 +1,7 @@
+groq 
+langchain 
+langchain_groq 
+dash_ag_grid 
+dash 
+pandas
+gunicorn
